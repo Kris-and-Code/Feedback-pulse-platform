@@ -1,0 +1,4 @@
+# Ignore environment variable files
+.env
+firebase-config.json
+firebase-key.json

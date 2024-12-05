@@ -1,7 +1,7 @@
 
 
 
-review_parser/                # Root directory of the project
+feedback-pulse/                # Root directory of the project
 ├── app/                      # Application package
 │   ├── __init__.py           # Flask app initialization
 │   ├── routes.py             # API routes
