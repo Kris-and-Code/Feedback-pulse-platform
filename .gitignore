@@ -1,0 +1,6 @@
+# Ignore environment variable files
+.env
+firebase-config.json
+firebase-key.json
+node_modules
+venv/
