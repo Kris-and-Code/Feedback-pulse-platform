@@ -3,4 +3,25 @@
 firebase-config.json
 firebase-key.json
 node_modules
-venv/
+benv/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Data
+data/*.csv
+analysis_results.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Environment variables
+.env
+
+# Model cache
+.cache/
