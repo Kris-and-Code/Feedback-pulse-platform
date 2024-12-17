@@ -1,43 +1,45 @@
-import pandas as pd
+import csv
+from io import StringIO
+import asyncio
 
 class AmazonDataLoader:
     def __init__(self):
         pass
 
-    def clean_rating(self, rating):
-        """Clean rating value"""
-        try:
-            # Remove any text and split by delimiter
-            clean_rating = str(rating).split('|')[0].strip()
-            return float(clean_rating)
-        except (ValueError, TypeError):
-            return 0.0
-
-    def load_reviews(self, file_path):
+    async def load_reviews_async(self, file_path):
         """
-        Load Amazon product reviews from CSV
+        Load reviews from sample CSV using asyncio
         """
         try:
-            # Read CSV file
-            df = pd.read_csv(file_path)
-            
-            # Extract relevant columns and convert to list of dictionaries
+            print(f"Starting file read from {file_path}")
             reviews = []
-            for _, row in df.iterrows():
+            
+            # Read CSV file using asyncio
+            loop = asyncio.get_running_loop()
+            content = await loop.run_in_executor(None, self._read_file, file_path)
+            
+            # Parse CSV content
+            csv_reader = csv.DictReader(StringIO(content))
+            for row in csv_reader:
                 review = {
-                    'product_id': row['product_id'],
-                    'product_name': row['product_name'],
-                    'text': str(row['review_content']),
-                    'rating': self.clean_rating(row['rating']),
+                    'review_title': str(row['review_title']),
+                    'text': str(row['text']),
                     'user_name': str(row['user_name']),
-                    'review_title': str(row['review_title'])
+                    'rating': float(row['rating'])
                 }
                 reviews.append(review)
-
+                    
+            print(f"Successfully loaded {len(reviews)} reviews")
             return reviews
 
         except Exception as e:
+            print(f"Error in load: {str(e)}")
             raise Exception(f"Error loading reviews: {str(e)}")
+
+    def _read_file(self, file_path):
+        """Helper method to read file synchronously"""
+        with open(file_path, 'r', encoding='utf-8') as f:
+            return f.read()
 
     def get_product_stats(self, df):
         """
