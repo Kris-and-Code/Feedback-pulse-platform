@@ -1,6 +1,8 @@
-flask
+fastapi
+uvicorn
 requests
 beautifulsoup4
 firebase-admin
-scikit-learn
-nltk
+transformers
+torch
+python-dotenv
