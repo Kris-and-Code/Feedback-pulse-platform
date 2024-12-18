@@ -2,11 +2,13 @@ import asyncio
 from firebase_admin import credentials, firestore, initialize_app
 from src.sentiment_analyzer import SentimentAnalyzer
 from src.emotion_analyzer import EmotionAnalyzer
+from src.vectorizer import ReviewVectorizer
 
 class Analyzer:
     def __init__(self, firebase_key=None):
         self.sentiment_analyzer = SentimentAnalyzer()
         self.emotion_analyzer = EmotionAnalyzer()
+        self.vectorizer = ReviewVectorizer()
         
         # Initialize Firebase
         if firebase_key:
@@ -157,14 +159,21 @@ class Analyzer:
                 # Process each review and get its Firebase ID
                 review_id = await self.process_review(review, review.get('product_url', 'N/A'))
                 
-                # Run sentiment and emotion analysis concurrently
+                # Run all analyses concurrently
                 sentiment_task = asyncio.create_task(self.sentiment_review(review_id))
                 emotion_task = asyncio.create_task(self.emotion_review(review_id))
+                vector_task = asyncio.create_task(
+                    self.vectorizer.vectorize_review(
+                        self.db.collection('reviews').document(review_id).get(),
+                        review
+                    )
+                )
                 
-                # Wait for both analyses to complete
-                sentiment_result, emotion_result = await asyncio.gather(
+                # Wait for all analyses to complete
+                sentiment_result, emotion_result, vector_result = await asyncio.gather(
                     sentiment_task, 
                     emotion_task,
+                    vector_task,
                     return_exceptions=True
                 )
                 
