@@ -4,3 +4,7 @@ beautifulsoup4
 firebase-admin
 scikit-learn
 nltk
+sentence-transformers
+torch
+transformers
+python-multipart
