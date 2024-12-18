@@ -1,188 +1,200 @@
-import torch
-from transformers import pipeline
-import numpy as np
-import firebase_admin
-from firebase_admin import credentials, firestore
-from datetime import datetime
+import asyncio
+from firebase_admin import credentials, firestore, initialize_app
+from src.sentiment_analyzer import SentimentAnalyzer
+from src.emotion_analyzer import EmotionAnalyzer
 
-class SentimentAnalyzer:
-    def __init__(self, firebase_credentials_path):
+class Analyzer:
+    def __init__(self, firebase_key=None):
+        self.sentiment_analyzer = SentimentAnalyzer()
+        self.emotion_analyzer = EmotionAnalyzer()
+        
         # Initialize Firebase
-        try:
-            cred = credentials.Certificate(firebase_credentials_path)
-            firebase_admin.initialize_app(cred)
+        if firebase_key:
+            cred = credentials.Certificate(firebase_key)
+            initialize_app(cred)
             self.db = firestore.client()
+        else:
+            self.db = None
+
+    async def process_review(self, review_data, product_url):
+        """Process a single review and store in Firebase"""
+        if not self.db:
+            raise Exception("Firebase not initialized")
+        
+        try:
+            # Create a new document in the reviews collection
+            review_ref = self.db.collection('reviews').document()
+            
+            # Prepare review data for Firebase
+            firebase_data = {
+                'review_title': review_data['review_title'],
+                'text': review_data['text'],
+                'user_name': review_data['user_name'],
+                'rating': float(review_data['rating']),
+                'product_url': product_url,
+                'created_at': firestore.SERVER_TIMESTAMP,
+                'sentiment_status': 'pending',
+                'emotion_status': 'pending'
+            }
+            
+            # Store the review
+            review_ref.set(firebase_data)
+            print(f"Stored review with ID: {review_ref.id}")
+            
+            return review_ref.id
+            
         except Exception as e:
-            print(f"Firebase initialization error: {str(e)}")
+            print(f"Error storing review: {str(e)}")
             raise e
 
-        # Initialize sentiment analyzer
-        print("Initializing sentiment analyzer...")
-        model_name = "distilbert/distilbert-base-uncased-finetuned-sst-2-english"
-        self.sentiment_analyzer = pipeline(
-            "sentiment-analysis",
-            model=model_name,
-            revision="714eb0f",
-            device=0 if torch.cuda.is_available() else -1,
-            max_length=512,
-            truncation=True
-        )
+    async def sentiment_review(self, review_id):
+        """Analyze sentiment for a specific review"""
+        if not self.db:
+            raise Exception("Firebase not initialized")
+            
+        try:
+            # Get review document
+            review_doc = self.db.collection('reviews').document(review_id).get()
+            if not review_doc.exists:
+                raise Exception(f"Review {review_id} not found")
+                
+            # Extract review data
+            review_data = review_doc.to_dict()
+            
+            # Perform sentiment analysis
+            return await self.sentiment_analyzer.analyze_review(review_doc, review_data)
+            
+        except Exception as e:
+            print(f"Error in sentiment analysis: {str(e)}")
+            raise e
 
-    def analyze_reviews(self, reviews):
-        """
-        Analyzes sentiment of reviews from sample CSV
-        """
-        results = []
-        for review in reviews:
-            try:
-                # Combine review title and content for better analysis
-                full_text = f"{review['review_title']} {review['text']}"
+    async def emotion_review(self, review_id):
+        """Analyze emotion for a specific review"""
+        if not self.db:
+            raise Exception("Firebase not initialized")
+            
+        try:
+            # Get review document
+            review_doc = self.db.collection('reviews').document(review_id).get()
+            if not review_doc.exists:
+                raise Exception(f"Review {review_id} not found")
                 
-                # Analyze sentiment
-                sentiment = self.sentiment_analyzer(full_text)[0]
-                
-                # Get rating (already in correct format in sample CSV)
-                rating = float(review['rating'])
-                
-                results.append({
-                    'review_title': review['review_title'],
-                    'text': review['text'],  # No need to truncate for sample data
-                    'user_name': review['user_name'],
-                    'rating': rating,
-                    'sentiment': sentiment['label'],
-                    'sentiment_score': float(sentiment['score'])
-                })
-            except Exception as e:
-                print(f"Warning: Error analyzing review: {str(e)}")
-                results.append({
-                    'review_title': review['review_title'],
-                    'text': review['text'],
-                    'user_name': review['user_name'],
-                    'rating': 0.0,
-                    'sentiment': 'UNKNOWN',
-                    'sentiment_score': 0.0
-                })
-        
-        return results
+            # Extract review data
+            review_data = review_doc.to_dict()
+            
+            # Perform emotion analysis
+            return await self.emotion_analyzer.analyze_review(review_doc, review_data)
+            
+        except Exception as e:
+            print(f"Error in emotion analysis: {str(e)}")
+            raise e
 
     def get_summary_stats(self, analysis_results):
-        """
-        Generates summary statistics for sentiment analysis
-        """
-        # Filter out unknown sentiments
-        valid_results = [r for r in analysis_results if r['sentiment'] != 'UNKNOWN']
+        """Calculate summary statistics from analysis results"""
+        if not analysis_results:
+            return {}
+            
+        total_reviews = len(analysis_results)
+        sentiment_counts = {}
+        emotion_counts = {}
+        avg_rating = 0
         
-        if not valid_results:
-            return {
-                'total_reviews': len(analysis_results),
-                'analyzed_reviews': 0,
-                'error': 'No valid sentiment analysis results'
-            }
-
-        sentiments = [r['sentiment'] for r in valid_results]
-        scores = [r['sentiment_score'] for r in valid_results]
-        
-        # Filter out zero ratings
-        valid_ratings = [r['rating'] for r in valid_results if r['rating'] > 0]
-        
+        for result in analysis_results:
+            # Count sentiments
+            sentiment = result['sentiment']
+            sentiment_counts[sentiment] = sentiment_counts.get(sentiment, 0) + 1
+            
+            # Count emotions
+            emotion = result['emotion']
+            emotion_counts[emotion] = emotion_counts.get(emotion, 0) + 1
+            
+            # Sum ratings
+            avg_rating += result['rating']
+            
         return {
-            'total_reviews': len(analysis_results),
-            'analyzed_reviews': len(valid_results),
-            'average_rating': np.mean(valid_ratings) if valid_ratings else 0,
+            'total_reviews': total_reviews,
+            'average_rating': avg_rating / total_reviews if total_reviews > 0 else 0,
             'sentiment_distribution': {
-                'positive': sentiments.count('POSITIVE'),
-                'negative': sentiments.count('NEGATIVE'),
-                'positive_percentage': (sentiments.count('POSITIVE') / len(sentiments)) * 100 if sentiments else 0
+                k: v/total_reviews for k, v in sentiment_counts.items()
             },
-            'average_sentiment_score': np.mean(scores) if scores else 0
+            'emotion_distribution': {
+                k: v/total_reviews for k, v in emotion_counts.items()
+            }
         }
 
     def push_to_firebase(self, analysis_results):
-        """
-        Pushes analyzed reviews to Firebase with text indexing
-        """
+        """Push analysis results to Firebase"""
+        if not self.db:
+            raise Exception("Firebase not initialized")
+            
         try:
-            print("\nAttempting to push to Firebase...")
-            reviews_collection = self.db.collection('reviews')
+            # Create a batch write
             batch = self.db.batch()
             
-            # Verify write permissions
-            try:
-                test_doc = reviews_collection.document('test')
-                test_doc.set({'test': 'test'})
-                test_doc.delete()
-                print("✅ Write permission verified")
-            except Exception as e:
-                print(f"❌ Write permission test failed: {str(e)}")
-                raise e
-            
-            documents_to_verify = []
-            
-            for i, result in enumerate(analysis_results):
-                doc_id = f"review_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{i}"
-                doc_ref = reviews_collection.document(doc_id)
-                documents_to_verify.append(doc_id)
+            # Add each result to the batch
+            for result in analysis_results:
+                doc_ref = self.db.collection('analyzed_reviews').document()
+                batch.set(doc_ref, {
+                    **result,
+                    'created_at': firestore.SERVER_TIMESTAMP
+                })
                 
-                # Create search tokens for text and title
-                review_text = result['text'].lower()
-                review_title = result['review_title'].lower()
-                
-                # Generate word tokens for searching
-                text_tokens = set(review_text.split())
-                title_tokens = set(review_title.split())
-                
-                # Create searchable n-grams (2 and 3 characters)
-                text_ngrams = self._generate_ngrams(review_text, [2, 3])
-                title_ngrams = self._generate_ngrams(review_title, [2, 3])
-                
-                data_to_push = {
-                    'review_title': result['review_title'],
-                    'text': result['text'],
-                    'user_name': result['user_name'],
-                    'rating': result['rating'],
-                    'sentiment': result['sentiment'],
-                    'sentiment_score': result['sentiment_score'],
-                    'timestamp': firestore.SERVER_TIMESTAMP,
-                    # Search fields
-                    'text_tokens': list(text_tokens),
-                    'title_tokens': list(title_tokens),
-                    'text_ngrams': list(text_ngrams),
-                    'title_ngrams': list(title_ngrams),
-                    # Additional search metadata
-                    'searchable': True,
-                    'last_indexed': firestore.SERVER_TIMESTAMP
-                }
-                
-                batch.set(doc_ref, data_to_push)
-                print(f"Prepared review {i+1} with ID: {doc_id}")
-            
-            print("Committing batch to Firebase...")
+            # Commit the batch
             batch.commit()
-            
-            # Verify upload
-            print("Verifying upload...")
-            for doc_id in documents_to_verify[:2]:
-                doc = reviews_collection.document(doc_id).get()
-                if not doc.exists:
-                    raise Exception(f"Document {doc_id} not found after upload")
-            
-            print(f"✅ Successfully pushed and verified {len(analysis_results)} reviews to Firebase")
-            return True
+            print(f"Successfully pushed {len(analysis_results)} results to Firebase")
             
         except Exception as e:
-            print(f"❌ Error pushing to Firebase: {str(e)}")
-            print(f"Error details: {type(e).__name__}")
-            return False
+            print(f"Error pushing to Firebase: {str(e)}")
+            raise e
 
-    def _generate_ngrams(self, text, sizes=[2, 3]):
+    async def analyze_reviews(self, reviews):
         """
-        Generate n-grams from text for better search indexing
+        Analyze multiple reviews and store results in Firebase
         """
-        text = text.lower()
-        ngrams = set()
-        
-        for size in sizes:
-            for i in range(len(text) - size + 1):
-                ngrams.add(text[i:i + size])
-        
-        return list(ngrams)
+        try:
+            results = []
+            for review in reviews:
+                # Process each review and get its Firebase ID
+                review_id = await self.process_review(review, review.get('product_url', 'N/A'))
+                
+                # Run sentiment and emotion analysis concurrently
+                sentiment_task = asyncio.create_task(self.sentiment_review(review_id))
+                emotion_task = asyncio.create_task(self.emotion_review(review_id))
+                
+                # Wait for both analyses to complete
+                sentiment_result, emotion_result = await asyncio.gather(
+                    sentiment_task, 
+                    emotion_task,
+                    return_exceptions=True
+                )
+                
+                # Prepare analysis result
+                analysis_result = {
+                    'review_id': review_id,
+                    'review_title': review['review_title'],
+                    'text': review['text'],
+                    'user_name': review['user_name'],
+                    'rating': float(review['rating']),
+                }
+                
+                # Add sentiment analysis results if successful
+                if not isinstance(sentiment_result, Exception):
+                    analysis_result.update({
+                        'sentiment': sentiment_result['sentiment'],
+                        'sentiment_score': sentiment_result['confidence']
+                    })
+                
+                # Add emotion analysis results if successful
+                if not isinstance(emotion_result, Exception):
+                    analysis_result.update({
+                        'emotion': emotion_result['primary_emotion']['label'],
+                        'emotion_score': emotion_result['primary_emotion']['confidence']
+                    })
+                
+                results.append(analysis_result)
+                
+            return results
+            
+        except Exception as e:
+            print(f"Error analyzing reviews: {str(e)}")
+            raise e

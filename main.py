@@ -1,4 +1,4 @@
-from src.analyzer import SentimentAnalyzer
+from src.analyzer import Analyzer
 from src.data_loader import AmazonDataLoader
 import json
 import asyncio
@@ -8,7 +8,7 @@ class ReviewAnalysisSystem:
     def __init__(self):
         """Initialize the system components"""
         self.loader = AmazonDataLoader()
-        self.analyzer = SentimentAnalyzer('firebase-key.json')
+        self.analyzer = Analyzer('firebase-key.json')
 
     async def analyze_reviews(self, file_path):
         """
@@ -22,7 +22,7 @@ class ReviewAnalysisSystem:
             print(f"Loaded {len(reviews)} reviews")
 
             # Analyze sentiments
-            analysis_results = self.analyzer.analyze_reviews(reviews)
+            analysis_results = await self.analyzer.analyze_reviews(reviews)
             
             # Get summary statistics
             summary = self.analyzer.get_summary_stats(analysis_results)
@@ -58,6 +58,42 @@ class ReviewAnalysisSystem:
             print(f"Results saved to {filename}")
         except Exception as e:
             print(f"Error saving results: {str(e)}")
+
+    async def process_single_review(self, review_data, product_url):
+        """
+        Process a single review through the analysis pipeline
+        """
+        try:
+            # Store review and get ID
+            firebase_review_id = await self.analyzer.process_review(review_data, product_url)
+            print(f"Review stored with ID: {firebase_review_id}")
+            
+            # Run analyses concurrently
+            sentiment_task = asyncio.create_task(
+                self.analyzer.sentiment_review(firebase_review_id)
+            )
+            emotion_task = asyncio.create_task(
+                self.analyzer.emotion_review(firebase_review_id)
+            )
+            
+            # Wait for both analyses to complete
+            sentiment_result, emotion_result = await asyncio.gather(
+                sentiment_task, 
+                emotion_task,
+                return_exceptions=True
+            )
+            
+            return {
+                'review_id': firebase_review_id,
+                'sentiment': sentiment_result if not isinstance(sentiment_result, Exception) else None,
+                'emotion': emotion_result if not isinstance(emotion_result, Exception) else None
+            }
+            
+        except Exception as e:
+            print(f"Error processing review: {str(e)}")
+            return {
+                'error': str(e)
+            }
 
 async def main():
     # Initialize system
