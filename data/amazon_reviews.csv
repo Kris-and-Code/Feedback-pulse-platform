@@ -1,0 +1,20 @@
+# create_sample_data.py
+import pandas as pd
+
+# Create sample data
+data = {
+    'review_text': [
+        "This product is amazing! I love it.",
+        "Not worth the money, very disappointed.",
+        "Good quality product, fast delivery.",
+        "Average product, nothing special.",
+        "Excellent customer service and product quality!"
+    ],
+    'rating': [5, 1, 4, 3, 5]
+}
+
+# Create DataFrame
+df = pd.DataFrame(data)
+
+# Save to CSV
+df.to_csv('data/amazon_reviews.csv', index=False)

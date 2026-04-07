@@ -1,10 +1,7 @@
-from flask import Flask
-from app.routes import api_routes
+import logging
 
-def create_app():
-    app = Flask(__name__)
-
-    # Register the Blueprint
-    app.register_blueprint(api_routes)
-
-    return app
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
