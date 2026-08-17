@@ -1,153 +1,108 @@
 # Feedback Pulse Platform
 
-Unified Flask API for scraping product reviews, analyzing CSV/text feedback, and optionally storing results in Firebase.
+Unified Flask API combining features from all branches: web scraping, Amazon scraping, CSV analysis, sentiment/emotion detection, vector similarity search, local SQLite storage, and optional Firebase persistence.
 
 ## Features
 
-- Scrape reviews from a web page (generic HTML selectors)
-- Analyze sentiment and emotion for single text or CSV uploads
-- Aggregate sentiment/emotion for stored reviews by URL
-- Lazy-load transformer models (server starts without downloading weights)
-- In-memory storage fallback when Firebase credentials are not configured
+- Generic web scraper and Amazon-specific scraper
+- Sentiment analysis (DistilBERT) with simple, detailed, and ML modes
+- Emotion detection (lexicon, TextBlob detailed, transformer ML)
+- CSV batch analysis
+- Vector similarity search (`sentence-transformers`)
+- Local SQLite feedback storage
+- Firebase Firestore persistence (optional)
+- Lazy-loaded models — server starts quickly
 
 ## Project Structure
 
 ```
 Feedback-pulse-platform/
 ├── app/
-│   ├── __init__.py
-│   ├── routes.py              # Flask API endpoints
-│   ├── scraper.py             # Web scraper (from dev)
-│   ├── firebase_service.py    # Firebase + in-memory fallback
-│   ├── data_loader.py         # CSV loader (from csv-analyser)
-│   ├── sentiment_analysis.py  # Lazy-loaded transformers sentiment
-│   └── emotion_analysis.py    # Lexicon-based emotion detection
-├── app.py                     # Entry point
-├── sample_reviews.csv         # Demo CSV data (from csv-analyser)
-├── requirements.txt
-├── .env.example
-└── README.md
+│   ├── routes.py
+│   ├── scraper.py
+│   ├── amazon_scraper.py      # from sentiment-analyser
+│   ├── firebase_service.py
+│   ├── data_loader.py         # from csv-analyser
+│   ├── vectorizer.py          # from csv-analyser
+│   ├── local_db.py            # from sentiment-analyser
+│   ├── sentiment_analysis.py
+│   └── emotion_analysis.py
+├── data/
+│   └── amazon_reviews.csv
+├── sample_reviews.csv
+├── app.py
+└── requirements.txt
 ```
 
-## Branches Merged
+## Branch Features Integrated
 
-| Branch | What was integrated |
+| Branch | Integrated into dev |
 |--------|---------------------|
-| `dev` | Flask app structure, scraper, Firebase routes |
-| `csv-analyser` | CSV loading, batch analysis, `sample_reviews.csv` |
-| `sentiment-analyser` | Emotion lexicon, in-memory DB fallback pattern, distilbert model choice |
-
-## Requirements
-
-- Python 3.8+
-- Firebase project (optional — only needed for persistent cloud storage)
+| `dev` | Flask API, generic scraper, Firebase |
+| `csv-analyser` | CSV loader, vector similarity, DistilBERT sentiment, transformer emotion |
+| `sentiment-analyser` | Amazon scraper, TextBlob emotion analysis, SQLite feedback DB |
 
 ## Installation
-
-1. Clone and checkout dev:
 
 ```bash
 git clone https://github.com/Kris-and-Code/Feedback-pulse-platform.git
 cd Feedback-pulse-platform
 git checkout dev
-```
-
-2. Create and activate a virtual environment:
-
-```bash
 python -m venv .venv
-```
-
-Windows:
-
-```bash
-.venv\Scripts\activate
-```
-
-macOS/Linux:
-
-```bash
-source .venv/bin/activate
-```
-
-3. Install dependencies:
-
-```bash
+.venv\Scripts\activate        # Windows
 pip install -r requirements.txt
-```
-
-4. (Optional) Copy environment template and add Firebase credentials:
-
-```bash
-copy .env.example .env
-```
-
-The app runs without a `.env` file. Reviews are stored in memory until the process restarts.
-
-5. Run the application:
-
-```bash
+copy .env.example .env        # optional Firebase setup
 python app.py
 ```
 
-The API runs at `http://127.0.0.1:5000/`.
+API: `http://127.0.0.1:5000/`
 
 ## API Endpoints
 
-### Root
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/` | API info |
+| GET | `/health` | Health check |
+| POST | `/scrape-review` | Scrape generic URL |
+| POST | `/scrape-amazon` | Scrape Amazon product reviews |
+| POST | `/analyze-text` | Analyze text (`mode`: simple, detailed, ml) |
+| POST | `/analyze-csv` | Upload CSV for batch analysis |
+| POST | `/find-similar` | Find similar reviews by text embedding |
+| POST | `/vectorize` | Get text embedding vector |
+| GET/POST | `/feedback` | Local SQLite feedback storage |
+| GET | `/aggregate-sentiment?url=` | Aggregate stored review sentiment |
+| GET | `/aggregate-emotion?url=` | Aggregate stored review emotion |
 
-- **URL:** `/`
-- **Method:** `GET`
-- Returns API info and available endpoints.
+### Analyze modes
 
-### Health
+- `simple` — fast lexicon emotion + basic sentiment label
+- `detailed` — sentiment confidence + TextBlob emotion breakdown
+- `ml` — transformer sentiment + transformer emotion classification
 
-- **URL:** `/health`
-- **Method:** `GET`
-
-### Scrape Reviews
-
-- **URL:** `/scrape-review`
-- **Method:** `POST`
-- **Body:** `{ "url": "https://example.com" }`
-- Saves scraped reviews to Firebase (if configured) or in-memory store.
-
-### Analyze Text
-
-- **URL:** `/analyze-text`
-- **Method:** `POST`
-- **Body:** `{ "text": "This product is amazing!" }`
-- Downloads the sentiment model on first use.
-
-### Analyze CSV
-
-- **URL:** `/analyze-csv`
-- **Method:** `POST`
-- **Body:** multipart form with field `file` (CSV)
-- Expected columns: `review_title`, `text`, `user_name`, `rating`
-
-Example with curl:
+### Examples
 
 ```bash
-curl -X POST -F "file=@sample_reviews.csv" http://127.0.0.1:5000/analyze-csv
+# Analyze text
+curl -X POST http://127.0.0.1:5000/analyze-text -H "Content-Type: application/json" -d "{\"text\":\"I love this product!\",\"mode\":\"detailed\"}"
+
+# Analyze CSV
+curl -X POST -F "file=@sample_reviews.csv" -F "mode=simple" http://127.0.0.1:5000/analyze-csv
+
+# Find similar reviews
+curl -X POST http://127.0.0.1:5000/find-similar -H "Content-Type: application/json" -d "{\"text\":\"great quality product\",\"top_k\":3}"
+
+# Store feedback locally
+curl -X POST http://127.0.0.1:5000/feedback -H "Content-Type: application/json" -d "{\"review_text\":\"Amazing product\",\"rating\":5}"
 ```
 
-### Aggregate Sentiment / Emotion
+## Firebase (Optional)
 
-- **URL:** `/aggregate-sentiment?url=<url>` or `/aggregate-emotion?url=<url>`
-- **Method:** `GET`
-- Requires reviews previously stored via `/scrape-review`.
+Place `firebase-credentials.json` in the project root or set `FIREBASE_CREDENTIALS_PATH` in `.env`.
 
-## Optional: Firebase
+Use `FIREBASE_COLLECTION=feedback_pulse_v2` to store data in a separate Firestore collection from legacy data.
 
-Set the variables in `.env.example` to enable Firestore persistence. Without them:
+## Notes
 
-- `/scrape-review` stores reviews in an in-memory dict
-- Aggregate endpoints work against in-memory data for the current process
-- Data is lost when the server restarts
-
-## Development Notes
-
-- Update CSS selectors in `app/scraper.py` for your target review site.
-- Sentiment analysis uses Hugging Face `distilbert-base-uncased-finetuned-sst-2-english` and downloads weights on first `/analyze-text` or `/analyze-csv` call.
-- Emotion detection uses a lightweight keyword lexicon (no extra model download).
+- First `/analyze-text` or `/find-similar` call downloads ML models (may take time).
+- Amazon scraping may be blocked by Amazon's bot protection.
+- SQLite feedback is stored in `data/feedback.db` (gitignored).

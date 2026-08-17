@@ -77,6 +77,10 @@ def _reviews_collection_name():
     return os.getenv("FIREBASE_COLLECTION", "reviews")
 
 
+def _analyzed_collection_name():
+    return os.getenv("FIREBASE_ANALYZED_COLLECTION", "analyzed_reviews")
+
+
 def save_review_to_db(url, reviews):
     if not is_firebase_configured():
         stored = _in_memory_store.setdefault(url, [])
@@ -114,3 +118,59 @@ def get_reviews_for_url(url):
     url_doc = db.collection(collection).document(url)
     review_docs = url_doc.collection("reviews").stream()
     return [doc.to_dict() for doc in review_docs]
+
+
+def save_review_with_analysis(review, product_url="API_REQUEST"):
+    """Store a single analyzed review (csv-analyser / sentiment-analyser style)."""
+    review_id = str(uuid.uuid4())
+    payload = {**review, "id": review_id, "product_url": product_url}
+
+    if not is_firebase_configured():
+        stored = _in_memory_store.setdefault("analyzed_reviews", [])
+        stored.append(payload)
+        return review_id, "memory"
+
+    db = _get_db()
+    doc_ref = db.collection(_reviews_collection_name()).document(review_id)
+    doc_ref.set(payload)
+    return review_id, "firebase"
+
+
+def push_analyzed_results(analysis_results):
+    """Push batch analysis results to the analyzed_reviews collection."""
+    if not analysis_results:
+        return {"message": "No results to store", "count": 0, "storage": "none"}
+
+    if not is_firebase_configured():
+        stored = _in_memory_store.setdefault("analyzed_reviews", [])
+        stored.extend(analysis_results)
+        return {
+            "message": "Analysis results saved to in-memory store",
+            "count": len(analysis_results),
+            "storage": "memory",
+            "collection": "analyzed_reviews",
+        }
+
+    db = _get_db()
+    collection = _analyzed_collection_name()
+    batch = db.batch()
+    for result in analysis_results:
+        doc_ref = db.collection(collection).document()
+        batch.set(doc_ref, result)
+    batch.commit()
+
+    return {
+        "message": "Analysis results saved successfully",
+        "count": len(analysis_results),
+        "storage": "firebase",
+        "collection": collection,
+    }
+
+
+def get_analyzed_reviews():
+    if not is_firebase_configured():
+        return _in_memory_store.get("analyzed_reviews", [])
+
+    db = _get_db()
+    collection = _analyzed_collection_name()
+    return [doc.to_dict() for doc in db.collection(collection).stream()]

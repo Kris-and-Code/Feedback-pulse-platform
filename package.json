@@ -1,0 +1,9 @@
+{
+  "name": "feedback-pulse-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Static frontend for Feedback Pulse Platform (from sentiment-analyser branch)",
+  "scripts": {
+    "start": "echo Open http://127.0.0.1:5000/ui while Flask is running"
+  }
+}

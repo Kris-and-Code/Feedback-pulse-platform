@@ -30,6 +30,19 @@ def analyze_sentiment(text):
         return "neutral"
 
 
+def analyze_sentiment_detailed(text):
+    """Return sentiment label and confidence score."""
+    try:
+        result = _get_sentiment_analyzer()(str(text))[0]
+        return {
+            "sentiment": result["label"].lower(),
+            "confidence": float(result["score"]),
+        }
+    except Exception as exc:
+        print(f"Error in sentiment analysis: {exc}")
+        return {"sentiment": "neutral", "confidence": 0.0}
+
+
 def aggregate_sentiments(reviews):
     """Return sentiment distribution for a list of review dicts."""
     if not reviews:

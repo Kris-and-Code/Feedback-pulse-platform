@@ -35,6 +35,8 @@ reviews.json
 analysis_results.json
 *.log
 data/*.db
+data/*.csv
+!data/amazon_reviews.csv
 
 # OS
 .DS_Store

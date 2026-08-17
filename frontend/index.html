@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Feedback Pulse</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
+    section { margin-bottom: 2rem; }
+    input, textarea, button { width: 100%; margin: 0.5rem 0; padding: 0.6rem; }
+    pre { background: #f5f5f5; padding: 1rem; overflow: auto; }
+  </style>
+</head>
+<body>
+  <h1>Feedback Pulse Platform</h1>
+  <p>Unified UI for the Flask API (dev + csv-analyser + sentiment-analyser features).</p>
+
+  <section>
+    <h2>Analyze Text</h2>
+    <textarea id="reviewText" rows="4" placeholder="Enter review text"></textarea>
+    <select id="analyzeMode">
+      <option value="simple">simple</option>
+      <option value="detailed">detailed</option>
+      <option value="ml">ml</option>
+    </select>
+    <button id="analyzeBtn">Analyze</button>
+  </section>
+
+  <section>
+    <h2>Scrape Reviews</h2>
+    <input id="scrapeUrl" placeholder="Product URL" />
+    <button id="scrapeBtn">Scrape</button>
+  </section>
+
+  <section>
+    <h2>Response</h2>
+    <pre id="output">Ready.</pre>
+  </section>
+
+  <script type="module" src="/frontend/js/reviews.js"></script>
+</body>
+</html>
