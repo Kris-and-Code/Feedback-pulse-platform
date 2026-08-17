@@ -1,6 +1,41 @@
-# Ignore environment variable files
+# Environment and secrets
 .env
 firebase-config.json
 firebase-key.json
-node_modules
+firebase_key.json
+firebase-credentials.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.installed.cfg
+*.egg
 venv/
+.venv/
+env/
+ENV/
+
+# Node
+node_modules/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Runtime artifacts
+reviews.json
+analysis_results.json
+*.log
+data/*.db
+
+# OS
+.DS_Store
+Thumbs.db

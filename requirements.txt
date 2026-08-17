@@ -2,5 +2,7 @@ flask
 requests
 beautifulsoup4
 firebase-admin
-scikit-learn
+python-dotenv
+transformers
+torch
 nltk
