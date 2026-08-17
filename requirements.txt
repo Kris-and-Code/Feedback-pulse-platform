@@ -5,4 +5,3 @@ firebase-admin
 python-dotenv
 transformers
 torch
-nltk
