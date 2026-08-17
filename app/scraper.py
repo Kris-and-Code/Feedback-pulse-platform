@@ -1,11 +1,20 @@
 import requests
 from bs4 import BeautifulSoup
 
+from app.security import is_safe_http_url
+
 
 def scrape_reviews(url):
-    response = requests.get(url, timeout=30)
+    if not is_safe_http_url(url):
+        return {"error": "Invalid or disallowed URL"}
+
+    response = requests.get(url, timeout=30, allow_redirects=True)
     if response.status_code != 200:
         return {"error": "Failed to fetch the URL"}
+
+    final_url = response.url
+    if not is_safe_http_url(final_url):
+        return {"error": "Redirect target is not allowed"}
 
     soup = BeautifulSoup(response.text, "html.parser")
 

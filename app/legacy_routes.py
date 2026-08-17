@@ -6,6 +6,7 @@ from app.emotion_analysis import analyze_emotion, analyze_emotion_detailed, anal
 from app.firebase_service import push_analyzed_results, save_review_with_analysis
 from app.models.review import build_analysis_response, normalize_review_payload
 from app.sentiment_analysis import analyze_sentiment, analyze_sentiment_detailed
+from app.security import clamp_top_k, resolve_project_csv_path, validate_text_input
 from app.vectorizer import find_similar_reviews
 
 legacy_routes = Blueprint("legacy", __name__)
@@ -116,16 +117,21 @@ def legacy_parse_file():
 
 @legacy_routes.route("/api/find-similar", methods=["POST"])
 def legacy_find_similar():
-    data = request.get_json() or {}
-    query_text = data.get("text")
-    if not query_text:
-        return jsonify({"error": "text is required"}), 400
+    data = request.get_json(silent=True) or {}
+    try:
+        query_text = validate_text_input(data.get("text"))
+        top_k = clamp_top_k(data.get("top_k", 5))
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
 
-    top_k = int(data.get("top_k", 5))
     reviews = data.get("reviews")
     if reviews is None:
         csv_path = data.get("csv_path", "sample_reviews.csv")
-        reviews = load_reviews_from_csv(file_path=csv_path)
+        try:
+            safe_path = resolve_project_csv_path(csv_path)
+            reviews = load_reviews_from_csv(file_path=str(safe_path))
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
 
     similar_reviews = find_similar_reviews(query_text, reviews, top_k=top_k)
     return jsonify({"similar_reviews": similar_reviews})

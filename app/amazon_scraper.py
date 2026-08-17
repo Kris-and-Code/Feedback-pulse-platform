@@ -4,6 +4,8 @@ import time
 import requests
 from bs4 import BeautifulSoup
 
+from app.security import is_amazon_url, is_safe_http_url
+
 AMAZON_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -34,7 +36,7 @@ def _fetch_page(url, max_retries=3):
         except requests.RequestException as exc:
             last_error = exc
             time.sleep(2**attempt)
-    raise RuntimeError(f"Failed to fetch Amazon page after {max_retries} attempts: {last_error}")
+    raise RuntimeError("Failed to fetch Amazon page")
 
 
 def _parse_review_element(review_element):
@@ -76,6 +78,9 @@ def _parse_review_element(review_element):
 
 
 def scrape_amazon_reviews(url):
+    if not is_safe_http_url(url) or not is_amazon_url(url):
+        return {"error": "Invalid or disallowed Amazon URL"}
+
     product_id = _extract_product_id(url)
     reviews_url = f"https://www.amazon.com/product-reviews/{product_id}/ref=cm_cr_dp_d_show_all_btm"
     content = _fetch_page(reviews_url)

@@ -21,12 +21,19 @@ from app.firebase_service import (
 )
 from app.local_db import get_all_feedback, get_feedback_by_rating, store_feedback
 from app.scraper import scrape_reviews
+from app.security import clamp_top_k, resolve_project_csv_path, validate_text_input
 from app.sentiment_analysis import aggregate_sentiments, analyze_sentiment, analyze_sentiment_detailed
 from app.vectorizer import encode_text, find_similar_reviews
 
 load_dotenv()
 
 api_routes = Blueprint("api", __name__)
+
+
+def _safe_error_response(message="Request could not be completed"):
+    if os.getenv("FLASK_DEBUG", "0") == "1":
+        return jsonify({"error": message}), 500
+    return jsonify({"error": "Request could not be completed"}), 500
 
 
 def _analyze_by_mode(text, mode):
@@ -87,25 +94,25 @@ def health():
 
 @api_routes.route("/scrape-review", methods=["POST"])
 def scrape_review():
-    data = request.get_json()
-    url = data.get("url") if data else None
+    data = request.get_json(silent=True) or {}
+    url = data.get("url")
     if not url:
         return jsonify({"error": "URL is required"}), 400
 
     try:
         reviews = scrape_reviews(url)
         if isinstance(reviews, dict) and "error" in reviews:
-            return jsonify(reviews), 502
+            return jsonify(reviews), 400
 
         response = save_review_to_db(url, reviews)
         return jsonify(response)
     except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+        return _safe_error_response(str(exc))
 
 
 @api_routes.route("/scrape-amazon", methods=["POST"])
 def scrape_amazon():
-    data = request.get_json() or {}
+    data = request.get_json(silent=True) or {}
     url = data.get("url")
     if not url:
         return jsonify({"error": "Amazon product URL is required"}), 400
@@ -113,22 +120,23 @@ def scrape_amazon():
     try:
         reviews = scrape_amazon_reviews(url)
         if isinstance(reviews, dict) and "error" in reviews:
-            return jsonify(reviews), 502
+            return jsonify(reviews), 400
 
         response = save_review_to_db(url, reviews)
         return jsonify({**response, "source": "amazon"})
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
     except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+        return _safe_error_response(str(exc))
 
 
 @api_routes.route("/analyze-text", methods=["POST"])
 def analyze_text():
-    data = request.get_json() or {}
-    text = data.get("text")
-    if not text:
-        return jsonify({"error": "text is required"}), 400
+    data = request.get_json(silent=True) or {}
+    try:
+        text = validate_text_input(data.get("text"))
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
 
     mode = data.get("mode", "simple")
     if mode not in ("simple", "detailed", "ml"):
@@ -171,17 +179,18 @@ def analyze_csv():
 
         return jsonify(response)
     except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+        return _safe_error_response(str(exc))
 
 
 @api_routes.route("/find-similar", methods=["POST"])
 def find_similar():
-    data = request.get_json() or {}
-    query_text = data.get("text")
-    if not query_text:
-        return jsonify({"error": "text is required"}), 400
+    data = request.get_json(silent=True) or {}
+    try:
+        query_text = validate_text_input(data.get("text"))
+        top_k = clamp_top_k(data.get("top_k", 5))
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
 
-    top_k = int(data.get("top_k", 5))
     reviews = data.get("reviews")
     url = data.get("url")
 
@@ -189,9 +198,12 @@ def find_similar():
         reviews = get_reviews_for_url(url)
 
     if not reviews:
-        file_path = data.get("csv_path", "sample_reviews.csv")
-        if os.path.exists(file_path):
-            reviews = load_reviews_from_csv(file_path=file_path)
+        csv_path = data.get("csv_path", "sample_reviews.csv")
+        try:
+            safe_path = resolve_project_csv_path(csv_path)
+            reviews = load_reviews_from_csv(file_path=str(safe_path))
+        except ValueError:
+            reviews = []
 
     if not reviews:
         return jsonify({"error": "No reviews available for similarity search"}), 400
@@ -202,10 +214,11 @@ def find_similar():
 
 @api_routes.route("/vectorize", methods=["POST"])
 def vectorize():
-    data = request.get_json() or {}
-    text = data.get("text")
-    if not text:
-        return jsonify({"error": "text is required"}), 400
+    data = request.get_json(silent=True) or {}
+    try:
+        text = validate_text_input(data.get("text"))
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
 
     embedding = encode_text(text)
     return jsonify({"text": text, "embedding_dimension": len(embedding), "embedding": embedding})
@@ -227,12 +240,14 @@ def list_feedback():
 
 @api_routes.route("/feedback", methods=["POST"])
 def create_feedback():
-    data = request.get_json() or {}
+    data = request.get_json(silent=True) or {}
     review_text = data.get("review_text") or data.get("text")
     rating = data.get("rating")
 
-    if not review_text:
-        return jsonify({"error": "review_text is required"}), 400
+    try:
+        review_text = validate_text_input(review_text)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
     if rating is None:
         return jsonify({"error": "rating is required"}), 400
 
@@ -291,4 +306,5 @@ def aggregate_emotion():
 
 @api_routes.route("/analyzed-reviews", methods=["GET"])
 def analyzed_reviews():
-    return jsonify({"count": len(get_analyzed_reviews()), "results": get_analyzed_reviews()})
+    results = get_analyzed_reviews()
+    return jsonify({"count": len(results), "results": results})
