@@ -18,8 +18,10 @@ from app.firebase_service import (
     is_firebase_configured,
     push_analyzed_results,
     save_review_to_db,
+    save_review_with_analysis,
 )
 from app.local_db import get_all_feedback, get_feedback_by_rating, store_feedback
+from app.openai_analyzer import OpenAIAnalyzerError, analyze_sentiment_openai
 from app.scraper import scrape_reviews
 from app.security import clamp_top_k, resolve_project_csv_path, validate_text_input
 from app.sentiment_analysis import aggregate_sentiments, analyze_sentiment, analyze_sentiment_detailed
@@ -64,6 +66,7 @@ def index():
                 "scrape_review": "POST /scrape-review",
                 "scrape_amazon": "POST /scrape-amazon",
                 "analyze_text": "POST /analyze-text",
+                "analyze_openai": "POST /analyze-openai",
                 "analyze_csv": "POST /analyze-csv",
                 "find_similar": "POST /find-similar",
                 "vectorize": "POST /vectorize",
@@ -144,6 +147,58 @@ def analyze_text():
 
     result = _analyze_by_mode(text, mode)
     return jsonify({"text": text, "mode": mode, **result})
+
+
+@api_routes.route("/analyze-openai", methods=["POST"])
+def analyze_openai():
+    data = request.get_json(silent=True) or {}
+    try:
+        text = validate_text_input(data.get("text"))
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    try:
+        analysis = analyze_sentiment_openai(text)
+    except OpenAIAnalyzerError as exc:
+        return jsonify({"error": str(exc)}), exc.status_code
+
+    record = {
+        "text": text,
+        "sentiment": analysis["sentiment"],
+        "reason": analysis["reason"],
+        "analysis_method": "openai",
+        "model": analysis["model"],
+        "input_tokens": analysis["input_tokens"],
+        "output_tokens": analysis["output_tokens"],
+        "cost_usd": analysis["cost_usd"],
+        "latency_seconds": analysis["latency_seconds"],
+    }
+
+    try:
+        review_id, storage = save_review_with_analysis(record)
+    except Exception as exc:
+        return _safe_error_response(f"Analysis succeeded but Firebase save failed: {exc}")
+
+    return jsonify(
+        {
+            "text": text,
+            "sentiment": analysis["sentiment"],
+            "reason": analysis["reason"],
+            "analysis_method": "openai",
+            "model": analysis["model"],
+            "usage": {
+                "input_tokens": analysis["input_tokens"],
+                "output_tokens": analysis["output_tokens"],
+                "cost_usd": analysis["cost_usd"],
+                "latency_seconds": analysis["latency_seconds"],
+            },
+            "firebase": {
+                "id": review_id,
+                "storage": storage,
+                "collection": os.getenv("FIREBASE_COLLECTION", "reviews"),
+            },
+        }
+    )
 
 
 @api_routes.route("/analyze-csv", methods=["POST"])

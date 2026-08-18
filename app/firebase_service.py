@@ -174,3 +174,69 @@ def get_analyzed_reviews():
     db = _get_db()
     collection = _analyzed_collection_name()
     return [doc.to_dict() for doc in db.collection(collection).stream()]
+
+
+def _extract_review_text(review):
+    if not isinstance(review, dict):
+        return None
+
+    text = review.get("text") or review.get("review_text")
+    if not text:
+        return None
+
+    title = review.get("review_title", "")
+    if title:
+        return f"{title} {text}".strip()
+    return str(text).strip()
+
+
+def get_review_texts(limit=20):
+    """Return up to `limit` review text strings from the configured reviews collection."""
+    if limit <= 0:
+        return []
+
+    texts = []
+
+    if not is_firebase_configured():
+        for key, reviews in _in_memory_store.items():
+            if key == "analyzed_reviews":
+                continue
+            if not isinstance(reviews, list):
+                continue
+            for review in reviews:
+                text = _extract_review_text(review)
+                if text:
+                    texts.append(text)
+                    if len(texts) >= limit:
+                        return texts
+
+        for review in _in_memory_store.get("analyzed_reviews", []):
+            text = _extract_review_text(review)
+            if text:
+                texts.append(text)
+                if len(texts) >= limit:
+                    return texts
+        return texts
+
+    db = _get_db()
+    collection_name = _reviews_collection_name()
+
+    for doc in db.collection(collection_name).stream():
+        subcollection = doc.reference.collection("reviews").stream()
+        subcollection_found = False
+        for sub_doc in subcollection:
+            subcollection_found = True
+            text = _extract_review_text(sub_doc.to_dict())
+            if text:
+                texts.append(text)
+                if len(texts) >= limit:
+                    return texts
+
+        if not subcollection_found:
+            text = _extract_review_text(doc.to_dict())
+            if text:
+                texts.append(text)
+                if len(texts) >= limit:
+                    return texts
+
+    return texts
